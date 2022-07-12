@@ -5,6 +5,10 @@ import os
 
 import sklearn as sk
 from sklearn.cluster import KMeans
+
+# import pca
+from sklearn.decomposition import PCA
+
 import plotly.express as px
 import plotly.io as pio
 pio.renderers.default = "browser"
@@ -13,12 +17,13 @@ import tqdm
 import logging
 
 
-def generte_vocabulary(path = 'data/data/train/', vocab_size = 150):
+def generte_vocabulary(path = 'data/data/train/', vocab_size = 150, folder_nums = [10, 11, 12, 13]):
+
 
     sift = cv2.SIFT_create()
     subfolders = [f.path for f in os.scandir(path) if f.is_dir()]
     # limit classes for development
-    subfolders = subfolders[4:8]
+    subfolders =   [subfolders[i] for i in folder_nums]
 
 
     # initialzie vocab
@@ -39,37 +44,42 @@ def generte_vocabulary(path = 'data/data/train/', vocab_size = 150):
 
             # normalize image
             img = img.astype(float)
+
+
             img = img-np.min(img)
             img = img/np.max(img)
             img = img*255
             img = img.astype(np.uint8)
 
             kp = sift.detect(img,None)
-            kp, des = sift.compute(img, kp)
+            kp, des = sift.compute(img, kp, None)
+
 
             # filter out weak features
-            # des = np.argsort(np.abs(des))[-30:]
+            # des = np.argsort(np.abs(des))[-50:]
 
             X_raw.append(des)
             y.append(cl)
-            count += 1
-            if count >5 == 0:
-                break
 
-            vocab = np.vstack((vocab, des))
-            # add label to each descriptor
-            y_raw.append([cl] * len(des))
+            if des is not None:
+                vocab = np.vstack((vocab, des))
+                # add label to each descriptor
+                y_raw.append([cl] * len(des))
 
 
     # now cluster the words and print
-    kmeans = KMeans(n_clusters=vocab_size, random_state=0).fit(vocab)
+    print("Clustering...")
+    kmeans = KMeans(n_clusters=vocab_size).fit(vocab)
+    print("Clustering done.")
+
 
     # predict the cluster for each descri[tor in X_raw
     X = np.zeros((len(X_raw), vocab_size))
-    for i, x in enumerate(X_raw):
-        hist =  np.bincount(kmeans.predict(x.astype(float)), minlength=vocab_size)
-        hist = hist / np.sum(hist)
-        X[i] = hist
+    for i, x in tqdm.tqdm(enumerate(X_raw)):
+        if x is not None:
+            hist = np.histogram(kmeans.predict(x.astype(float)), bins=vocab_size, range=(0, vocab_size))[0]
+            hist = hist / np.sum(hist)
+            X[i] = hist
 
 
     return kmeans, X, y
@@ -77,14 +87,12 @@ def generte_vocabulary(path = 'data/data/train/', vocab_size = 150):
 # for test image, get sift features, and assign to nearest cluster
 def image_to_histogram(img, kmeans):
 
-    img = cv2.resize(img, (300, 300))
 
     kp = sift.detect(img,None)
     kp, des = sift.compute(img, kp)
     # filter out weak features
-    # des = np.argsort(np.abs(des))[-100:]
-
-    hist = np.bincount(kmeans.predict(des.astype(float)), minlength=kmeans.n_clusters)
+    # des = np.argsort(np.abs(des))[-50:]
+    hist = np.histogram(kmeans.predict(des.astype(float)), bins=kmeans.n_clusters, range=(0, kmeans.n_clusters))[0]
     hist = hist / np.sum(hist)
     return hist
 
@@ -94,7 +102,7 @@ def histogram_distance(hist1, hist2):
 
 
 
-def classify_image(img, X, y, K = 6):
+def classify_image(img, X, y, K = 15):
     # this function classfies img based on data X with knn
     # K is the number of nearest neighbors to use
     # img is the image to classify
@@ -110,14 +118,14 @@ def classify_image(img, X, y, K = 6):
     # print(nearest_neighbors_labels)
 
     nearest_neighbors_labels = Counter(nearest_neighbors_labels).most_common(1)[0][0]
-    return nearest_n
+    return nearest_neighbors_labels
 
 
 
-def evaluate_classifier(path, sample_size = 100):
+def evaluate_classifier(path, sample_size = 100, folder_nums = [10, 11, 12, 13]):
     subfolders = [f.path for f in os.scandir(path) if f.is_dir()]
     # limit classes for development
-    subfolders = subfolders[4:8]
+    subfolders =   [subfolders[i] for i in folder_nums]
 
     # randomly select image from each folder
     count = 0
@@ -138,13 +146,14 @@ def evaluate_classifier(path, sample_size = 100):
 
 
 # ======================= train
-kmeans, X, y = generte_vocabulary(vocab_size=2)
+folder_nums = [0,1,2,3]
+kmeans, X, y = generte_vocabulary(vocab_size=50, folder_nums=folder_nums)
 
 # ======================= Evaluate classifier
-print(evaluate_classifier('data/data/test/', sample_size = 5))
+print(evaluate_classifier('data/data/test/', sample_size = 15), folder_nums)
 
 # ======================= Optimize vocabulary size
-for i in range(50, 250, 100):
+for i in range(5, 150, 15):
     kmeans, X, y = generte_vocabulary(vocab_size=i)
     res = evaluate_classifier('data/data/test/', sample_size = 15)
     print(i, res)

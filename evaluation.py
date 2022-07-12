@@ -18,7 +18,7 @@ true_y = []
 for subfolder in subfolders:
     images = [f.path for f in os.scandir(subfolder) if f.is_file()]
     cl = subfolder.rsplit('/', 1)[-1]
-    inds = np.random.choice(len(images), 100, replace=False)
+    inds = np.random.choice(len(images), 10, replace=False)
     for ind in inds:
         img = cv2.imread(images[ind])
         img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -34,6 +34,7 @@ label_dict = {k: v for v, k in enumerate(set(true_y))}
 true_y = [label_dict[k] for k in true_y]
 predictions = [label_dict[k] for k in predictions]
 
+cm = confusion_matrix(true_y, predictions)
 
 import matplotlib.pyplot as plt
 fig = plt.figure()
