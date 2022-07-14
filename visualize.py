@@ -27,7 +27,6 @@ fig.add_trace(px.scatter_3d(kp, x='pts[0]', y='pts[1]', z='pts[2]'))
 fig.show()
 
 
-kmeans, X, y = generte_vocabulary(vocab_size = 5)
 
 
 Xdf = pd.DataFrame(X)
@@ -57,7 +56,22 @@ for cl in set(y):
 
 
 
-
+# plot both
+fig = px.line(y=hist1)
+fig.add_trace(px.line(y=im_features.ravel(),color_discrete_sequence=['violet']).data[0])
+fig.show()
 
 # X_street = Xdf
 # plot
+ # umap
+import umap
+umap_embedding = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, metric='correlation').fit_transform(vocab)
+fig = px.scatter_3d(umap_embedding, x='umap_embedding[0]', y='umap_embedding[1]', z='umap_embedding[2]')
+fig.show()
+
+# sample 100 points from vocab
+import random
+inds = random.sample(range(0, vocab.shape[0]), 1000)
+vocab_s = vocab[inds, :]
+fig = px.scatter_3d(x = vocab_s[:,0], y = vocab_s[:,1], z = vocab_s[:,2])
+fig.show()
