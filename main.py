@@ -16,6 +16,10 @@ from collections import Counter
 import tqdm
 import logging
 
+# this should be in a try catch block
+from kmeans_gpu import KMeans as KM_GPU
+import torch
+
 sift = cv2.SIFT_create()
 
 
@@ -24,13 +28,19 @@ def extract_sift(im_path):
     img = cv2.imread(im_path)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
+    # calc derivative
+    img = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=5)
+    # normalize to uint8
+    img = (img / np.max(img) * 255).astype(np.uint8)
+
     # clean image
-    # img = cv2.GaussianBlur(img, (5, 5), 0)
+    img = cv2.GaussianBlur(img, (1, 1), 0)
 
     kp = sift.detect(img,None)
 
     #  filter by size
-    kp = [k for k in kp if k.size > 5]
+    # kp = [k for k in kp if k.size > 5]
+
     kp, des = sift.compute(img, kp)
 
     return des
@@ -67,6 +77,45 @@ def generte_vocabulary(path = 'data/data/train/', folder_nums = None):
 
     return X_raw, y
 
+def cluster_vocab_gpu(X_raw, vocab_size = 150):
+
+    vocab = np.array(X_raw[0])
+    for x in X_raw:
+        t = np.array(x)
+        vocab = np.concatenate([vocab, t])
+    # Config
+    batch_size = vocab.shape[0]
+    num_cluster = vocab_size
+
+    # Create KMeans Module
+    kmeans = KM_GPU(
+        n_clusters=num_cluster,
+        tolerance=1e-4,
+        distance='euclidean',
+        sub_sampling=None,
+    )
+
+    x = torch.from_numpy(vocab).float()
+    batch_x = x.unsqueeze(dim=0)
+    center_pts = kmeans(batch_x)
+    center_pts = np.array(center_pts)
+
+    # predict the cluster for each descri[tor in X_raw
+    X = np.zeros((len(X_raw), vocab_size))
+    for i, x in tqdm.tqdm(enumerate(X_raw)):
+        if x is not None:
+            if len(x) > 0:
+                closest_centroid = np.zeros(vocab.shape[0])
+                for ii in range(x.shape[0]):
+                    dis = np.min(np.sum((x[ii, :] - center_pts) ** 2, axis=1))
+                    if dis < 1e3:
+                        closest_centroid[ii] = np.argmin(np.sum((x[ii, :] - center_pts) ** 2, axis=1))
+                hist = np.histogram(closest_centroid, bins=vocab_size)[0]
+                hist = hist / np.sum(hist)
+                X[i] = hist
+
+
+    return kmeans, X
 
 def cluster_vocab(X_raw, vocab_size = 150):
 
@@ -178,4 +227,5 @@ def eval(X,y):
 
     # predict
     y_pred = knn_model.predict(X_test)
-    print(accuracy_score(y_test, y_pred))
+    # print(accuracy_score(y_test, y_pred))
+    return accuracy_score(y_test, y_pred)

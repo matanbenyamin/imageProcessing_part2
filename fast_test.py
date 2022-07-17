@@ -1,12 +1,39 @@
+import random
+
 from main import *
 # ======================= train
-folder_nums = [7,8,9]
+folder_nums = [11,12,13,14]
 # all folders
 X_raw, y = generte_vocabulary(folder_nums = folder_nums)
-kmeans, X = cluster_vocab(X_raw, vocab_size=20 )
 
-# normalize X in row dimension
+# kmeans, X = cluster_vocab(X_raw, vocab_size=20 )
 
+# import silhouette
+from sklearn.metrics import silhouette_score
+
+acc = []
+si = []
+for vs in list(range(150, 400, 40)):
+    kmeans, X = cluster_vocab_gpu(X_raw, vocab_size=vs )
+    # calculate silhouette score
+    si.append(silhouette_score(vocab, kmeans.labels_, metric='euclidean'))
+    acc.append(eval(X,y))
+    print('vocab size: {} accuracy: {}'.format(vs, eval(X,y)))
+
+
+vocab = np.array(X_raw[0])
+    for x in X_raw:
+        t = np.array(x)
+        vocab = np.concatenate([vocab, t])
+
+# visualize 3 dimensions from vocab
+import random
+#randomsly sample 100 poinbts from vocab
+num_points = 10000
+indices = random.sample(range(vocab.shape[0]), num_points)
+vocab_3d = vocab[indices,:3]
+fig = px.scatter_3d(vocab_3d, x=0, y=1, z=2)
+fig.show()
 
 fig = px.line(np.transpose(X))
 fig.show()

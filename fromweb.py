@@ -1,311 +1,145 @@
-import argparse
-import cv2
 import numpy as np
+import cv2
 import os
+from scipy import ndimage
+from scipy.spatial import distance
 from sklearn.cluster import KMeans
-from sklearn.svm import SVC
-from sklearn.preprocessing import StandardScaler
-from matplotlib import pyplot as plt
-from sklearn import svm, datasets
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix
-from sklearn.utils.multiclass import unique_labels
-from sklearn.metrics.pairwise import chi2_kernel
-from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import accuracy_score
 
-
-def getFiles(train, path):
-    images = []
-    count = 0
-    for folder in os.listdir(path):
-        for file in os.listdir(os.path.join(path, folder)):
-            images.append(os.path.join(path, os.path.join(folder, file)))
-
-    if (train is True):
-        np.random.shuffle(images)
-
+# takes all images and convert them to grayscale.
+# return a dictionary that holds all images category by category.
+def load_images_from_folder(folder):
+    images = {}
+    for filename in os.listdir(folder):
+        category = []
+        path = folder + "/" + filename
+        for cat in os.listdir(path):
+            img = cv2.imread(path + "/" + cat,0)
+            #img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            if img is not None:
+                category.append(img)
+        images[filename] = category
     return images
 
-
-def getDescriptors(sift, img):
-    kp, des = sift.detectAndCompute(img, None)
-    return des
+images = load_images_from_folder('data/data/train')  # take all images category by category
+test = load_images_from_folder('data/data/test') # take test images
 
 
-def readImage(img_path):
-    img = cv2.imread(img_path, 0)
-    return cv2.resize(img, (150, 150))
-
-
-def vstackDescriptors(descriptor_list):
-    descriptors = np.array(descriptor_list[0])
-    for descriptor in descriptor_list[1:]:
-        descriptors = np.vstack((descriptors, descriptor))
-
-    return descriptors
-
-
-def clusterDescriptors(descriptors, no_clusters):
-    kmeans = KMeans(n_clusters=no_clusters).fit(descriptors)
-    return kmeans
-
-
-def extractFeatures(kmeans, descriptor_list, image_count, no_clusters):
-    im_features = np.array([np.zeros(no_clusters) for i in range(image_count)])
-    for i in range(image_count):
-        for j in range(len(descriptor_list[i])):
-            feature = descriptor_list[i][j]
-            feature = feature.reshape(1, 128)
-            idx = kmeans.predict(feature)
-            im_features[i][idx] += 1
-
-    return im_features
-
-
-def normalizeFeatures(scale, features):
-    return scale.transform(features)
-
-
-def plotHistogram(im_features, no_clusters):
-    x_scalar = np.arange(no_clusters)
-    y_scalar = np.array([abs(np.sum(im_features[:, h], dtype=np.int32)) for h in range(no_clusters)])
-
-    plt.bar(x_scalar, y_scalar)
-    plt.xlabel("Visual Word Index")
-    plt.ylabel("Frequency")
-    plt.title("Complete Vocabulary Generated")
-    plt.xticks(x_scalar + 0.4, x_scalar)
-    plt.show()
-
-
-def svcParamSelection(X, y, kernel, nfolds):
-    Cs = [0.5, 0.1, 0.15, 0.2, 0.3]
-    gammas = [0.1, 0.11, 0.095, 0.105]
-    param_grid = {'C': Cs, 'gamma': gammas}
-    grid_search = GridSearchCV(SVC(kernel=kernel), param_grid, cv=nfolds)
-    grid_search.fit(X, y)
-    grid_search.best_params_
-    return grid_search.best_params_
-
-
-def findSVM(im_features, train_labels, kernel):
-    features = im_features
-    if (kernel == "precomputed"):
-        features = np.dot(im_features, im_features.T)
-
-    params = svcParamSelection(features, train_labels, kernel, 5)
-    C_param, gamma_param = params.get("C"), params.get("gamma")
-    print(C_param, gamma_param)
-    class_weight = {
-        0: (807 / (7 * 140)),
-        1: (807 / (7 * 140)),
-        2: (807 / (7 * 133)),
-        3: (807 / (7 * 70)),
-        4: (807 / (7 * 42)),
-        5: (807 / (7 * 140)),
-        6: (807 / (7 * 142))
-    }
-
-    svm = SVC(kernel=kernel, C=C_param, gamma=gamma_param, class_weight=class_weight)
-    svm.fit(features, train_labels)
-    return svm
-
-
-def plotConfusionMatrix(y_true, y_pred, classes,
-                        normalize=False,
-                        title=None,
-                        cmap=plt.cm.Blues):
-    if not title:
-        if normalize:
-            title = 'Normalized confusion matrix'
-        else:
-            title = 'Confusion matrix, without normalization'
-
-    cm = confusion_matrix(y_true, y_pred)
-    if normalize:
-        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-        print("Normalized confusion matrix")
-    else:
-        print('Confusion matrix, without normalization')
-
-    print(cm)
-
-    fig, ax = plt.subplots()
-    im = ax.imshow(cm, interpolation='nearest', cmap=cmap)
-    ax.figure.colorbar(im, ax=ax)
-    ax.set(xticks=np.arange(cm.shape[1]),
-           yticks=np.arange(cm.shape[0]),
-           xticklabels=classes, yticklabels=classes,
-           title=title,
-           ylabel='True label',
-           xlabel='Predicted label')
-
-    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
-             rotation_mode="anchor")
-
-    fmt = '.2f' if normalize else 'd'
-    thresh = cm.max() / 2.
-    for i in range(cm.shape[0]):
-        for j in range(cm.shape[1]):
-            ax.text(j, i, format(cm[i, j], fmt),
-                    ha="center", va="center",
-                    color="white" if cm[i, j] > thresh else "black")
-    fig.tight_layout()
-    return ax
-
-
-def plotConfusions(true, predictions):
-    np.set_printoptions(precision=2)
-
-    class_names = ["city", "face", "green", "house_building", "house_indoor", "office", "sea"]
-    plotConfusionMatrix(true, predictions, classes=class_names,
-                        title='Confusion matrix, without normalization')
-
-    plotConfusionMatrix(true, predictions, classes=class_names, normalize=True,
-                        title='Normalized confusion matrix')
-
-    plt.show()
-
-
-def findAccuracy(true, predictions):
-    print('accuracy score: %0.3f' % accuracy_score(true, predictions))
-
-
-def trainModel(path, no_clusters, kernel):
-    images = getFiles(True, path)
-    print("Train images path detected.")
-    sift = cv2.xfeatures2d.SIFT_create()
+# Creates descriptors using sift
+# Takes one parameter that is images dictionary
+# Return an array whose first index holds the decriptor_list without an order
+# And the second index holds the sift_vectors dictionary which holds the descriptors but this is seperated class by class
+def sift_features(images):
+    sift_vectors = {}
     descriptor_list = []
-    train_labels = np.array([])
-    label_count = 7
-    image_count = len(images)
-
-    for img_path in images:
-        if ("city" in img_path):
-            class_index = 0
-        elif ("face" in img_path):
-            class_index = 1
-        elif ("green" in img_path):
-            class_index = 2
-        elif ("house_building" in img_path):
-            class_index = 3
-        elif ("house_indoor" in img_path):
-            class_index = 4
-        elif ("office" in img_path):
-            class_index = 5
-        else:
-            class_index = 6
-
-        train_labels = np.append(train_labels, class_index)
-        img = readImage(img_path)
-        des = getDescriptors(sift, img)
-        descriptor_list.append(des)
-
-    descriptors = vstackDescriptors(descriptor_list)
-    print("Descriptors vstacked.")
-
-    kmeans = clusterDescriptors(descriptors, no_clusters)
-    print("Descriptors clustered.")
-
-    im_features = extractFeatures(kmeans, descriptor_list, image_count, no_clusters)
-    print("Images features extracted.")
-
-    scale = StandardScaler().fit(im_features)
-    im_features = scale.transform(im_features)
-    print("Train images normalized.")
-
-    plotHistogram(im_features, no_clusters)
-    print("Features histogram plotted.")
-
-    svm = findSVM(im_features, train_labels, kernel)
-    print("SVM fitted.")
-    print("Training completed.")
-
-    return kmeans, scale, svm, im_features
-
-
-def testModel(path, kmeans, scale, svm, im_features, no_clusters, kernel):
-    test_images = getFiles(False, path)
-    print("Test images path detected.")
-
-    count = 0
-    true = []
-    descriptor_list = []
-
-    name_dict = {
-        "0": "city",
-        "1": "face",
-        "2": "green",
-        "3": "house_building",
-        "4": "house_indoor",
-        "5": "office",
-        "6": "sea"
-    }
-
     sift = cv2.xfeatures2d.SIFT_create()
+    for key, value in images.items():
+        features = []
+        for img in value:
+            kp, des = sift.detectAndCompute(img, None)
 
-    for img_path in test_images:
-        img = readImage(img_path)
-        des = getDescriptors(sift, img)
-
-        if (des is not None):
-            count += 1
-            descriptor_list.append(des)
-
-            if ("city" in img_path):
-                true.append("city")
-            elif ("face" in img_path):
-                true.append("face")
-            elif ("green" in img_path):
-                true.append("green")
-            elif ("house_building" in img_path):
-                true.append("house_building")
-            elif ("house_indoor" in img_path):
-                true.append("house_indoor")
-            elif ("office" in img_path):
-                true.append("office")
-            else:
-                true.append("sea")
-
-    descriptors = vstackDescriptors(descriptor_list)
-
-    test_features = extractFeatures(kmeans, descriptor_list, count, no_clusters)
-
-    test_features = scale.transform(test_features)
-
-    kernel_test = test_features
-    if (kernel == "precomputed"):
-        kernel_test = np.dot(test_features, im_features.T)
-
-    predictions = [name_dict[str(int(i))] for i in svm.predict(kernel_test)]
-    print("Test images classified.")
-
-    plotConfusions(true, predictions)
-    print("Confusion matrixes plotted.")
-
-    findAccuracy(true, predictions)
-    print("Accuracy calculated.")
-    print("Execution done.")
+            descriptor_list.extend(des)
+            features.append(des)
+        sift_vectors[key] = features
+    return [descriptor_list, sift_vectors]
 
 
-def execute(train_path, test_path, no_clusters, kernel):
-    kmeans, scale, svm, im_features = trainModel(train_path, no_clusters, kernel)
-    testModel(test_path, kmeans, scale, svm, im_features, no_clusters, kernel)
+sifts = sift_features(images)
+# Takes the descriptor list which is unordered one
+descriptor_list = sifts[0]
+# Takes the sift features that is seperated class by class for train data
+all_bovw_feature = sifts[1]
+# Takes the sift features that is seperated class by class for test data
+test_bovw_feature = sift_features(test)[1]
 
 
-if __name__ == '__main__':
+# A k-means clustering algorithm who takes 2 parameter which is number
+# of cluster(k) and the other is descriptors list(unordered 1d array)
+# Returns an array that holds central points.
+def kmeans2(k, descriptor_list):
+    kmeans = KMeans(n_clusters=k, n_init=10)
+    kmeans.fit(descriptor_list)
+    visual_words = kmeans.cluster_centers_
+    return visual_words
 
-    parser = argparse.ArgumentParser()
 
-    parser.add_argument('--train_path', action="store", dest="train_path", required=True)
-    parser.add_argument('--test_path', action="store", dest="test_path", required=True)
-    parser.add_argument('--no_clusters', action="store", dest="no_clusters", default=50)
-    parser.add_argument('--kernel_type', action="store", dest="kernel_type", default="linear")
+# Takes the central points which is visual words
+visual_words = kmeans2(150, descriptor_list)
 
-    args = vars(parser.parse_args())
-    if (not (args['kernel_type'] == "linear" or args['kernel_type'] == "precomputed")):
-        print("Kernel type must be either linear or precomputed")
-        exit(0)
 
-    execute(args['train_path'], args['test_path'], int(args['no_clusters']), args['kernel_type'])
+# Takes 2 parameters. The first one is a dictionary that holds the descriptors that are separated class by class
+# And the second parameter is an array that holds the central points (visual words) of the k means clustering
+# Returns a dictionary that holds the histograms for each images that are separated class by class.
+def image_class(all_bovw, centers):
+    dict_feature = {}
+    for key, value in all_bovw.items():
+        category = []
+        for img in value:
+            histogram = np.zeros(len(centers))
+            for each_feature in img:
+                ind = find_index(each_feature, centers)
+                histogram[ind] += 1
+            category.append(histogram)
+        dict_feature[key] = category
+    return dict_feature
+
+
+# Creates histograms for train data
+bovw_train = image_class(all_bovw_feature, visual_words)
+# Creates histograms for test data
+bovw_test = image_class(test_bovw_feature, visual_words)
+
+
+# 1-NN algorithm. We use this for predict the class of test images.
+# Takes 2 parameters. images is the feature vectors of train images and tests is the feature vectors of test images
+# Returns an array that holds number of test images, number of correctly predicted images and records of class based images respectively
+def knn(images, tests):
+    num_test = 0
+    correct_predict = 0
+    class_based = {}
+
+    for test_key, test_val in tests.items():
+        class_based[test_key] = [0, 0]  # [correct, all]
+        for tst in test_val:
+            predict_start = 0
+            # print(test_key)
+            minimum = 0
+            key = "a"  # predicted
+            for train_key, train_val in images.items():
+                for train in train_val:
+                    if (predict_start == 0):
+                        minimum = distance.euclidean(tst, train)
+                        # minimum = L1_dist(tst,train)
+                        key = train_key
+                        predict_start += 1
+                    else:
+                        dist = distance.euclidean(tst, train)
+                        # dist = L1_dist(tst,train)
+                        if (dist < minimum):
+                            minimum = dist
+                            key = train_key
+
+            if (test_key == key):
+                correct_predict += 1
+                class_based[test_key][0] += 1
+            num_test += 1
+            class_based[test_key][1] += 1
+            # print(minimum)
+    return [num_test, correct_predict, class_based]
+
+
+# Call the knn function
+results_bowl = knn(bovw_train, bovw_test)
+
+
+# Calculates the average accuracy and class based accuracies.
+def accuracy(results):
+    avg_accuracy = (results[1] / results[0]) * 100
+    print("Average accuracy: %" + str(avg_accuracy))
+    print("\nClass based accuracies: \n")
+    for key, value in results[2].items():
+        acc = (value[0] / value[1]) * 100
+        print(key + " : %" + str(acc))
+
+
+# Calculates the accuracies and write the results to the console.
+print(accuracy(results_bowl))
