@@ -31,11 +31,12 @@ test = load_images_from_folder('data/data/test') # take test images
 def sift_features(images):
     sift_vectors = {}
     descriptor_list = []
-    sift = cv2.xfeatures2d.SIFT_create()
+    sift = cv2.SIFT_create()
     for key, value in images.items():
         features = []
         for img in value:
-            kp, des = sift.detectAndCompute(img, None)
+            kp = sift.detect(img, None)
+            kp, des = sift.compute(img, kp)
 
             descriptor_list.extend(des)
             features.append(des)

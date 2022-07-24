@@ -6,7 +6,7 @@ import pandas as pd
 import random
 
 # load random img
-path = 'data/data/train/'
+path = 'data/train/'
 subfolders = [f.path for f in os.scandir(path) if f.is_dir()]
 subfolder = random.choice(subfolders)
 images = [f.path for f in os.scandir(subfolder) if f.is_file()]

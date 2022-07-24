@@ -1,22 +1,66 @@
 import random
-
+import time
 from main import *
 # ======================= train
-folder_nums = [11,12,13,14]
+folder_nums = [13,14]
 # all folders
-X_raw, y = generte_vocabulary(folder_nums = folder_nums)
+ti = time.time()
 
-# kmeans, X = cluster_vocab(X_raw, vocab_size=20 )
+
+X_raw, y = generte_vocabulary()
+
+vocab_t = time.time()
+print('vocab_t: {}'.format(vocab_t))
+kmeans, X = cluster_vocab(X_raw, vocab_size=100 )
+cluster_t = time.time()
+print('cluster_t: {}'.format(cluster_t-ti))
 
 # import silhouette
 from sklearn.metrics import silhouette_score
 
-acc = []
+# hdbscan, X = cluster_vocab_hdbscan(X_raw, vocab_size=20)
+
+X_raw_test, y_test = generte_vocabulary(path = 'data/test/')
+
+vocab_test = np.array(X_raw_test[0])
+for x in X_raw_test:
+    t = np.array(x)
+    vocab_test = np.concatenate([vocab_test, t])
+# predict the cluster for each descri[tor in X_raw
+X_test = np.zeros((len(X_raw_test), 100))
+for i, x in tqdm.tqdm(enumerate(X_raw_test)):
+    if x is not None:
+        if len(x) > 0:
+            hist = np.histogram(kmeans.predict(x), bins=100)[0]
+            hist = hist / np.sum(hist)
+            X_test[i] = hist
+
+# predict
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from sklearn.neighbors import KNeighborsClassifier
+
+ # try a simple knn
+knn_model = KNeighborsClassifier(n_neighbors=5)
+knn_model.fit(X, y)
+
+y_pred = knn_model.predict(X_test)
+
+print(accuracy_score(y_test, y_pred))
+
+
+
+# print(eval(X,y))
+
+
+    acc = []
 si = []
 for vs in list(range(150, 400, 40)):
     kmeans, X = cluster_vocab_gpu(X_raw, vocab_size=vs )
+
     # calculate silhouette score
-    si.append(silhouette_score(vocab, kmeans.labels_, metric='euclidean'))
+    # si.append(silhouette_score(vocab, kmeans.labels_, metric='euclidean'))
     acc.append(eval(X,y))
     print('vocab size: {} accuracy: {}'.format(vs, eval(X,y)))
 
@@ -111,7 +155,7 @@ print(accuracy_score(y_test, y_pred))
 vocab_size = 150
 X_test = []
 y_test = []
-test_path = 'data/data/test/'
+test_path = 'data/test/'
 subfolders = [f.path for f in os.scandir(test_path) if f.is_dir()]
 # limit classes for development
 # subfolders =  [subfolders[i] for i in folder_nums]
@@ -128,7 +172,7 @@ X_test = np.array(X_test)
 
 
 # ================= test with random image
-path = 'data/data/test/'
+path = 'data/test/'
 
 subfolders = [f.path for f in os.scandir(path) if f.is_dir()]
 # limit classes for development
@@ -150,7 +194,7 @@ for subfolder in subfolders:
 # optimize kmeans
 for i in range(5, 15, 50):
     kmeans, X, y = generte_vocabulary(vocab_size=i)
-    res = evaluate_classifier('data/data/test/', sample_size = 65)
+    res = evaluate_classifier('data/test/', sample_size = 65)
     print(i, res)
 
 # visulazie clusters woth umap

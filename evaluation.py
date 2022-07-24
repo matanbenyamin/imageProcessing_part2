@@ -4,7 +4,7 @@
 from sklearn.metrics import confusion_matrix
 
 # get predictions
-path = 'data/data/test/'
+path = 'data/test/'
 # path = 'data/data/train/'
 
 subfolders = [f.path for f in os.scandir(path) if f.is_dir()]
@@ -56,7 +56,7 @@ from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import average_precision_score
 
 # get predictions
-path = 'data/data/test/'
+path = 'data/test/'
 # path = 'data/data/train/'
 
 subfolders = [f.path for f in os.scandir(path) if f.is_dir()]

@@ -29,12 +29,14 @@ def extract_sift(im_path):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # calc derivative
-    img = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=5)
+    # img = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=5)
     # normalize to uint8
+    img = img-np.min(img)
     img = (img / np.max(img) * 255).astype(np.uint8)
 
     # clean image
-    img = cv2.GaussianBlur(img, (1, 1), 0)
+    img = cv2.medianBlur(img, 5)
+
 
     kp = sift.detect(img,None)
 
@@ -45,7 +47,18 @@ def extract_sift(im_path):
 
     return des
 
-def generte_vocabulary(path = 'data/data/train/', folder_nums = None):
+def extractFeatures(kmeans, descriptor_list, image_count, no_clusters):
+    im_features = np.array([np.zeros(no_clusters) for i in range(image_count)])
+    for i in range(image_count):
+        for j in range(len(descriptor_list[i])):
+            feature = descriptor_list[i][j]
+            feature = feature.reshape(1, 128)
+            idx = kmeans.predict(feature)
+            im_features[i][idx] += 1
+
+    return im_features
+
+def generte_vocabulary(path = 'data/train/', folder_nums = None):
 
 
     subfolders = [f.path for f in os.scandir(path) if f.is_dir()]
@@ -76,6 +89,30 @@ def generte_vocabulary(path = 'data/data/train/', folder_nums = None):
                 y.append(cl)
 
     return X_raw, y
+
+def cluster_vocab_hdbscan(X_raw, vocab_size = 150):
+        import hdbscan
+        vocab = np.array(X_raw[0])
+        for x in X_raw:
+            t = np.array(x)
+            vocab = np.concatenate([vocab, t])
+
+        # now cluster the words and print
+        print("Clustering...")
+        hdbscan = hdbscan.HDBSCAN(min_cluster_size=10).fit(vocab)
+        print("Clustering done.")
+
+        # predict the cluster for each descri[tor in X_raw
+        X = np.zeros((len(X_raw), vocab_size))
+        for i, x in tqdm.tqdm(enumerate(X_raw)):
+            if x is not None:
+                if len(x) > 0:
+                    hist = np.histogram(hdbscan.labels_, bins=vocab_size)[0]
+                    hist = hist / np.sum(hist)
+                    X[i] = hist
+
+        return hdbscan, X
+
 
 def cluster_vocab_gpu(X_raw, vocab_size = 150):
 
@@ -220,9 +257,10 @@ def eval(X,y):
     from sklearn.metrics import confusion_matrix
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=42)
 
     # try a simple knn
-    knn_model = KNeighborsClassifier(n_neighbors=5)
+    knn_model = KNeighborsClassifier(n_neighbors=9)
     knn_model.fit(X_train, y_train)
 
     # predict
