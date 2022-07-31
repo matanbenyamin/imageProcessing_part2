@@ -1,26 +1,30 @@
 import random
 import time
 from main import *
+from sklearn.metrics import accuracy_score
+from sklearn.neighbors import KNeighborsClassifier
+
+
 # ======================= train
-folder_nums = [13,14]
-# all folders
+
+# [13,14] - 80% with knn,. 93 with svm
+
+
+# take only folder nums that are in class_df
+
 ti = time.time()
+folder_nums = [11,12, 13, 14]
 
 
-X_raw, y = generte_vocabulary()
+X_raw, y = generte_vocabulary(path='data/train/', folder_nums=folder_nums)
 
 vocab_t = time.time()
 print('vocab_t: {}'.format(vocab_t))
-kmeans, X = cluster_vocab(X_raw, vocab_size=100 )
+kmeans, X = cluster_vocab(X_raw, vocab_size=100)
 cluster_t = time.time()
-print('cluster_t: {}'.format(cluster_t-ti))
+print('cluster_t: {}'.format((cluster_t - ti) / 60))
+X_raw_test, y_test = generte_vocabulary(path='data/test/', folder_nums=folder_nums)
 
-# import silhouette
-from sklearn.metrics import silhouette_score
-
-# hdbscan, X = cluster_vocab_hdbscan(X_raw, vocab_size=20)
-
-X_raw_test, y_test = generte_vocabulary(path = 'data/test/')
 
 vocab_test = np.array(X_raw_test[0])
 for x in X_raw_test:
@@ -35,6 +39,161 @@ for i, x in tqdm.tqdm(enumerate(X_raw_test)):
             hist = hist / np.sum(hist)
             X_test[i] = hist
 
+# try a simple knn
+knn_model = KNeighborsClassifier(n_neighbors=5)
+knn_model.fit(X, y)
+y_pred = knn_model.predict(X_test)
+
+print(accuracy_score(y_test, y_pred))
+
+from hiclass import LocalClassifierPerNode
+from sklearn.ensemble import RandomForestClassifier
+# Use random forest classifiers for every node
+rf = RandomForestClassifier()
+classifier = LocalClassifierPerNode(local_classifier=knn_model)
+# Train local classifier per node
+classifier.fit(X, y)
+# Predict
+y_pred = classifier.predict(X_test)
+y_pred = [''.join(x) for x in y_pred]
+print(accuracy_score(y_test, y_pred))
+
+# =========== try a simple svm
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
+svm_model = SVC(kernel='rbf', C=1)
+#different kernels: linear, poly, rbf, sigmoid, precomputed
+svm_model.fit(X, y)
+# predict
+y_pred = svm_model.predict(X_test)
+print(accuracy_score(y_test, y_pred))
+
+
+
+
+
+# all folders
+ti = time.time()
+
+
+
+
+import pandas as pd
+folder_nums = [1, 2, 3, 4, 5, 6]
+# list classes by folder in train path
+path = 'data/train/'
+folder_df = pd.DataFrame()
+for i, folder in enumerate(os.listdir(path)):
+    if i in folder_nums:
+        folder_df = folder_df.append(pd.DataFrame([[folder, i]], columns=['class', 'folder_num']))
+classes = folder_df['class'].values
+
+# for each class in level1, create another level
+def create_class_sublevel(folder_df, level):
+    """
+    recieves a list of classes and number of levels
+    returns a dataframe with the classes and subclasses
+    :param
+    :return:
+    """
+    classes = folder_df['class'].values
+    df = pd.DataFrame(classes, columns=['class'])
+    df['level{}'.format(1)] = 0
+    df.iloc[int(len(classes) / 2):, 1] = 1
+
+    for i in range(2, level):
+        df['level{}'.format(i)] = 0
+        if i == 2:
+            prev_classes = [0,1]
+        else:
+            prev_classes = np.unique(df['level{}'.format(i - 1)])
+        max_class = np.max(prev_classes)
+        for j in prev_classes:
+            subdf = df[df['level{}'.format(i-1)] == j].copy()
+            subdf['level{}'.format(i)] = max_class+1
+            max_class += 1
+            subdf.iloc[int(len(subdf) / 2):,i]  = max_class+1
+            max_class += 1
+            df.iloc[df['level{}'.format(i-1)] == j, i] = subdf['level{}'.format(i)]
+            end2end(train_path='data/train/', test_path='data/test/', class_df=subdf, level=i)
+
+    return df
+
+
+new_classes = create_class_sublevel(classes, 3)
+
+def end2end(train_path, test_path, class_df, level):
+
+
+    # take only folder nums that are in class_df
+
+    ti = time.time()
+    X_raw, y = generte_vocabulary(path='data/train/', folder_nums=folder_nums)
+
+    new_y = y.copy()
+    for i, yi in enumerate(new_y):
+        new_y[i] = class_df.loc[class_df['class']==yi]['level{}'.format(level)].values[0]
+    y = new_y
+
+    vocab_t = time.time()
+    print('vocab_t: {}'.format(vocab_t))
+    kmeans, X = cluster_vocab(X_raw, vocab_size=100)
+    cluster_t = time.time()
+    print('cluster_t: {}'.format((cluster_t - ti) / 60))
+    X_raw_test, y_test = generte_vocabulary(path = 'data/test/', folder_nums = folder_nums)
+
+    new_y = y_test.copy()
+    for i, yi in enumerate(new_y):
+        new_y[i] = class_df.loc[class_df['class']==yi]['level{}'.format(level)].values[0]
+    y_test = new_y
+
+    vocab_test = np.array(X_raw_test[0])
+    for x in X_raw_test:
+        t = np.array(x)
+        vocab_test = np.concatenate([vocab_test, t])
+    # predict the cluster for each descri[tor in X_raw
+    X_test = np.zeros((len(X_raw_test), 100))
+    for i, x in tqdm.tqdm(enumerate(X_raw_test)):
+        if x is not None:
+            if len(x) > 0:
+                hist = np.histogram(kmeans.predict(x), bins=100)[0]
+                hist = hist / np.sum(hist)
+                X_test[i] = hist
+
+
+     # try a simple knn
+    knn_model = KNeighborsClassifier(n_neighbors=5)
+    knn_model.fit(X, y)
+    y_pred = knn_model.predict(X_test)
+
+    print(accuracy_score(y_test, y_pred))
+
+
+
+
+# import silhouette
+from sklearn.metrics import silhouette_score
+
+# hdbscan, X = cluster_vocab_hdbscan(X_raw, vocab_size=20)
+
+X_raw_test, y_test = generte_vocabulary(path = 'data/test/', folder_nums = folder_nums)
+
+
+
+vocab_test = np.array(X_raw_test[0])
+for x in X_raw_test:
+    t = np.array(x)
+    vocab_test = np.concatenate([vocab_test, t])
+# predict the cluster for each descri[tor in X_raw
+X_test = np.zeros((len(X_raw_test), 100))
+for i, x in tqdm.tqdm(enumerate(X_raw_test)):
+    if x is not None:
+        if len(x) > 0:
+            hist = np.histogram(kmeans.predict(x), bins=100)[0]
+            hist = hist / np.sum(hist)
+            X_test[i] = hist
+
+# X_test = extractFeatures(kmeans, X_raw_test, len(X_raw_test), 100)
 # predict
 
 from sklearn.model_selection import train_test_split
@@ -50,39 +209,17 @@ y_pred = knn_model.predict(X_test)
 print(accuracy_score(y_test, y_pred))
 
 
-
-# print(eval(X,y))
-
-
-    acc = []
-si = []
-for vs in list(range(150, 400, 40)):
-    kmeans, X = cluster_vocab_gpu(X_raw, vocab_size=vs )
-
-    # calculate silhouette score
-    # si.append(silhouette_score(vocab, kmeans.labels_, metric='euclidean'))
-    acc.append(eval(X,y))
-    print('vocab size: {} accuracy: {}'.format(vs, eval(X,y)))
+# =========== try a simple svm
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
+svm_model = SVC(kernel='rbf', C=1)
+#different kernels: linear, poly, rbf, sigmoid, precomputed
+svm_model.fit(X, y)
+# predict
+y_pred = svm_model.predict(X_test)
+print(accuracy_score(y_test, y_pred))
 
 
-vocab = np.array(X_raw[0])
-    for x in X_raw:
-        t = np.array(x)
-        vocab = np.concatenate([vocab, t])
-
-# visualize 3 dimensions from vocab
-import random
-#randomsly sample 100 poinbts from vocab
-num_points = 10000
-indices = random.sample(range(vocab.shape[0]), num_points)
-vocab_3d = vocab[indices,:3]
-fig = px.scatter_3d(vocab_3d, x=0, y=1, z=2)
-fig.show()
-
-fig = px.line(np.transpose(X))
-fig.show()
-
-eval(X,y)
 
 
 def tune_kmeans(all_descriptors):
@@ -128,23 +265,7 @@ print(confusion_matrix(y_test, y_pred))
 fig = px.imshow(confusion_matrix(y_test, y_pred))
 fig.show()
 
-# =========== try a simple svm
-from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import classification_report
-from sklearn.metrics import confusion_matrix
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=42)
-
-svm_model = SVC(kernel='poly', C=1)
-#different kernels: linear, poly, rbf, sigmoid, precomputed
-svm_model.fit(X_train, y_train)
-
-# predict
-y_pred = svm_model.predict(X_test)
-print(accuracy_score(y_test, y_pred))
 
 
 

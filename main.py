@@ -2,7 +2,9 @@ import numpy
 import numpy as np
 import cv2
 import os
-
+from sklearn.metrics import accuracy_score
+from sklearn.neighbors import KNeighborsClassifier
+import time
 import sklearn as sk
 from sklearn.cluster import KMeans
 
@@ -31,17 +33,21 @@ def extract_sift(im_path):
     # calc derivative
     # img = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=5)
     # normalize to uint8
-    img = img-np.min(img)
-    img = (img / np.max(img) * 255).astype(np.uint8)
+    # img = img-np.min(img)
+    # img = (img / np.max(img) * 255).astype(np.uint8)
 
     # clean image
-    img = cv2.medianBlur(img, 5)
+    # img = cv2.medianBlur(img, 5)
 
 
     kp = sift.detect(img,None)
 
-    #  filter by size
-    # kp = [k for k in kp if k.size > 5]
+     # filter by size
+    # kp = [k for k in kp if k.size > 1]
+
+    # taje the strongest keypoints
+    # kp = sorted(kp, key=lambda k: k.response, reverse=True)[:100]
+
 
     kp, des = sift.compute(img, kp)
 
@@ -57,6 +63,21 @@ def extractFeatures(kmeans, descriptor_list, image_count, no_clusters):
             im_features[i][idx] += 1
 
     return im_features
+
+def get_words(X_raw, kmeans):
+    vocab = np.array(X_raw[0])
+    for x in X_raw:
+        t = np.array(x)
+        vocab_test = np.concatenate([vocab, t])
+    # predict the cluster for each descri[tor in X_raw
+    X = np.zeros((len(X_raw_test), 100))
+    for i, x in tqdm.tqdm(enumerate(X_raw_test)):
+        if x is not None:
+            if len(x) > 0:
+                hist = np.histogram(kmeans.predict(x), bins=100)[0]
+                hist = hist / np.sum(hist)
+                X[i] = hist
+    return X
 
 def generte_vocabulary(path = 'data/train/', folder_nums = None):
 
@@ -176,6 +197,7 @@ def cluster_vocab(X_raw, vocab_size = 150):
                 hist = hist / np.sum(hist)
                 X[i] = hist
 
+    # X = extractFeatures(kmeans, X_raw, len(X_raw), vocab_size)
 
     return kmeans, X
 
@@ -267,3 +289,26 @@ def eval(X,y):
     y_pred = knn_model.predict(X_test)
     # print(accuracy_score(y_test, y_pred))
     return accuracy_score(y_test, y_pred)
+
+if __name__ == '__main__':
+
+    ti = time.time()
+    folder_nums = [11, 12]
+
+    X_raw, y = generte_vocabulary(path='data/train/', folder_nums=folder_nums)
+
+    vocab_t = time.time()
+    print('vocab_t: {}'.format(vocab_t))
+    kmeans, X = cluster_vocab(X_raw, vocab_size=100)
+    cluster_t = time.time()
+    print('cluster_t: {}'.format((cluster_t - ti) / 60))
+
+
+    X_raw_test, y_test = generte_vocabulary(path='data/test/', folder_nums=folder_nums)
+    X_test = get_words(X_raw_test, kmeans)
+
+    # try a simple knn
+    knn_model = KNeighborsClassifier(n_neighbors=5)
+    knn_model.fit(X, y)
+    y_pred = knn_model.predict(X_test)
+    print(accuracy_score(y_test, y_pred))
