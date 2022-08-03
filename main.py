@@ -65,6 +65,7 @@ def extractFeatures(kmeans, descriptor_list, image_count, no_clusters):
     return im_features
 
 def get_words(X_raw, kmeans):
+    vocab_size = kmeans.n_clusters
     vocab = np.array(X_raw[0])
     for x in X_raw:
         t = np.array(x)
@@ -75,8 +76,16 @@ def get_words(X_raw, kmeans):
         if x is not None:
             if len(x) > 0:
                 hist = np.histogram(kmeans.predict(x), bins=100)[0]
-                hist = hist / np.sum(hist)
+                # hist = hist / np.sum(hist)
                 X[i] = hist
+    #calcualte  tf idf
+    tf = np.sum(X, axis=0)
+    idf = np.sum(X > 0, axis=0)
+    idf = np.log(vocab_size / idf)
+    tf_idf = tf * idf
+    X = X * idf[None, :]
+
+
     return X
 
 def generte_vocabulary(path = 'data/train/', folder_nums = None):
@@ -194,10 +203,14 @@ def cluster_vocab(X_raw, vocab_size = 150):
         if x is not None:
             if len(x) > 0:
                 hist = np.histogram(kmeans.predict(x), bins=vocab_size)[0]
-                hist = hist / np.sum(hist)
+                # hist = hist / np.sum(hist)
                 X[i] = hist
 
-    # X = extractFeatures(kmeans, X_raw, len(X_raw), vocab_size)
+    # calcualet tf idf
+    tf = np.sum(X, axis=0)
+    idf = np.sum(X > 0, axis=0)
+    idf = np.log(vocab_size / idf)
+    X = X * idf[None, :]
 
     return kmeans, X
 
@@ -294,6 +307,8 @@ if __name__ == '__main__':
 
     ti = time.time()
     folder_nums = [11, 12]
+    #  all folders
+    folder_nums = None
 
     X_raw, y = generte_vocabulary(path='data/train/', folder_nums=folder_nums)
 
@@ -308,7 +323,7 @@ if __name__ == '__main__':
     X_test = get_words(X_raw_test, kmeans)
 
     # try a simple knn
-    knn_model = KNeighborsClassifier(n_neighbors=5)
+    knn_model = KNeighborsClassifier(n_neighbors=10)
     knn_model.fit(X, y)
     y_pred = knn_model.predict(X_test)
     print(accuracy_score(y_test, y_pred))
