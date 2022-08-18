@@ -30,14 +30,8 @@ def extract_sift(im_path):
     img = cv2.imread(im_path)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # calc derivative
-    # img = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=5)
-    # normalize to uint8
-    # img = img-np.min(img)
-    # img = (img / np.max(img) * 255).astype(np.uint8)
-
     # clean image
-    # img = cv2.medianBlur(img, 5)
+    # img = cv2.medianBlur(img, 3)
 
 
     kp = sift.detect(img,None)
@@ -64,25 +58,25 @@ def extractFeatures(kmeans, descriptor_list, image_count, no_clusters):
 
     return im_features
 
-def get_words(X_raw, kmeans):
+def get_words(X_raw, kmeans, idf):
     vocab_size = kmeans.n_clusters
     vocab = np.array(X_raw[0])
     for x in X_raw:
         t = np.array(x)
         vocab_test = np.concatenate([vocab, t])
     # predict the cluster for each descri[tor in X_raw
-    X = np.zeros((len(X_raw_test), 100))
-    for i, x in tqdm.tqdm(enumerate(X_raw_test)):
+    X = np.zeros((len(X_raw), 100))
+    for i, x in tqdm.tqdm(enumerate(X_raw)):
         if x is not None:
             if len(x) > 0:
                 hist = np.histogram(kmeans.predict(x), bins=100)[0]
                 # hist = hist / np.sum(hist)
                 X[i] = hist
     #calcualte  tf idf
-    tf = np.sum(X, axis=0)
-    idf = np.sum(X > 0, axis=0)
-    idf = np.log(vocab_size / idf)
-    tf_idf = tf * idf
+    # tf = np.sum(X, axis=0)
+    # idf = np.sum(X > 0, axis=0)
+    # idf = np.log(vocab_size / idf)
+    # tf_idf = tf * idf
     X = X * idf[None, :]
 
 
@@ -212,7 +206,7 @@ def cluster_vocab(X_raw, vocab_size = 150):
     idf = np.log(vocab_size / idf)
     X = X * idf[None, :]
 
-    return kmeans, X
+    return kmeans, X, idf
 
 
 def get_random_img(path):
@@ -262,68 +256,43 @@ def classify_image(img, X, y, K = 5):
 
 
 
-def evaluate_classifier(path, sample_size = 100, folder_nums = None):
-    subfolders = [f.path for f in os.scandir(path) if f.is_dir()]
-    # limit classes for development
-    if folder_nums is not None:
-        subfolders =   [subfolders[i] for i in folder_nums]
+def eval(kmeans, model, idf,  path='data/test/', folder_nums = None):
 
-    # randomly select image from each folder
-    count = 0
-    correct = 0
-    for subfolder in subfolders:
-        images = [f.path for f in os.scandir(subfolder) if f.is_file()]
-        cl = subfolder.rsplit('/', 1)[-1]
-        inds = np.random.choice(len(images), sample_size, replace=False)
-        for ind in inds:
-            img = cv2.imread(images[ind])
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            print(cl, classify_image(img, X, y))
-            if classify_image(img, X, y) == cl:
-                correct += 1
-    return correct / (sample_size*len(subfolders))
+    X_raw_test, y_test = generte_vocabulary(path=path, folder_nums=folder_nums)
+    X_test = get_words(X_raw_test, kmeans, idf)
 
+    y_pred = model.predict(X_test)
 
-def eval(X,y):
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import accuracy_score
-    from sklearn.neighbors import KNeighborsClassifier
-    from sklearn.metrics import classification_report
-    from sklearn.metrics import confusion_matrix
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=42)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=42)
-
-    # try a simple knn
-    knn_model = KNeighborsClassifier(n_neighbors=9)
-    knn_model.fit(X_train, y_train)
-
-    # predict
-    y_pred = knn_model.predict(X_test)
-    # print(accuracy_score(y_test, y_pred))
+    print(accuracy_score(y_test, y_pred))
     return accuracy_score(y_test, y_pred)
 
 if __name__ == '__main__':
+    # imports
+    from main import *
 
     ti = time.time()
-    folder_nums = [11, 12]
+    folder_nums = [11, 12,13,14]
     #  all folders
-    folder_nums = None
+    # folder_nums = None
 
     X_raw, y = generte_vocabulary(path='data/train/', folder_nums=folder_nums)
 
     vocab_t = time.time()
-    print('vocab_t: {}'.format(vocab_t))
-    kmeans, X = cluster_vocab(X_raw, vocab_size=100)
+    print('vocab_t: {}'.format((vocab_t-ti)/60))
+    kmeans, X, idf = cluster_vocab(X_raw, vocab_size=100)
     cluster_t = time.time()
     print('cluster_t: {}'.format((cluster_t - ti) / 60))
 
 
-    X_raw_test, y_test = generte_vocabulary(path='data/test/', folder_nums=folder_nums)
-    X_test = get_words(X_raw_test, kmeans)
-
     # try a simple knn
-    knn_model = KNeighborsClassifier(n_neighbors=10)
+    knn_model = KNeighborsClassifier(n_neighbors=5)
     knn_model.fit(X, y)
-    y_pred = knn_model.predict(X_test)
-    print(accuracy_score(y_test, y_pred))
+
+
+
+    eval(kmeans, knn_model, idf, path='data/test/', folder_nums=folder_nums)
+
+
+
+
+
